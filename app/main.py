@@ -12,7 +12,6 @@ from app.core.database import engine, Base, get_db
 from app.core.redis import get_redis_client, close_redis
 from app.api.v1 import router as api_v1_router
 
-# Create FastAPI instance with automatic docs at /docs and /redoc
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
