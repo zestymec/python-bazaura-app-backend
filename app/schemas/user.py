@@ -1,33 +1,27 @@
-"""
-Bazaura.pk - User & Address Pydantic v2 Schemas
-Covers OTP authentication, token responses, profile mutations, and shipping addresses.
-"""
-
+from datetime import datetime
 from typing import List, Optional
-from pydantic import Field
-from app.schemas.base import BaseSchema
+
+from pydantic import EmailStr, Field
+
+from app.schemas.common import BaseSchema
+from app.schemas.validators import NonEmptyStr, PakistanPhone
 
 
-class OTPRequest(BaseSchema):
-    phone: str = Field(..., examples=["03001234567", "+923001234567"])
+class AddressBase(BaseSchema):
+    label: Optional[str] = Field(None, max_length=32, examples=["Home"])
+    full_name: NonEmptyStr = Field(..., max_length=128)
+    phone: PakistanPhone
+    alternate_phone: Optional[PakistanPhone] = None
+    address_line1: NonEmptyStr
+    address_line2: Optional[str] = None
+    area: NonEmptyStr = Field(..., max_length=128, examples=["Gulberg III"])
+    city: NonEmptyStr = Field(..., max_length=64, examples=["Lahore"])
+    postal_code: Optional[str] = Field(None, max_length=16)
 
 
-class OTPRequestData(BaseSchema):
-    expires_in_seconds: int = 120
-    resend_available_in_seconds: int = 60
+class AddressSnapshot(BaseSchema):
+    """Address frozen onto an order or custom request."""
 
-
-class OTPVerifyRequest(BaseSchema):
-    phone: str = Field(..., examples=["03001234567"])
-    otp_code: str = Field(..., min_length=4, max_length=6, examples=["4821"])
-    full_name: Optional[str] = Field(None, examples=["Muhammad Ali"])
-
-
-class RefreshTokenRequest(BaseSchema):
-    refresh_token: str
-
-
-class ShippingAddressCreate(BaseSchema):
     full_name: str
     phone: str
     alternate_phone: Optional[str] = None
@@ -36,57 +30,48 @@ class ShippingAddressCreate(BaseSchema):
     area: str
     city: str
     postal_code: Optional[str] = None
+
+
+class AddressCreate(AddressBase):
     is_default: bool = False
 
 
-class ShippingAddressResponse(BaseSchema):
-    id: str
-    full_name: str
-    phone: str
-    alternate_phone: Optional[str] = None
-    address_line1: str
+class AddressUpdate(BaseSchema):
+    label: Optional[str] = Field(None, max_length=32)
+    full_name: Optional[NonEmptyStr] = None
+    phone: Optional[PakistanPhone] = None
+    alternate_phone: Optional[PakistanPhone] = None
+    address_line1: Optional[NonEmptyStr] = None
     address_line2: Optional[str] = None
-    area: str
-    city: str
+    area: Optional[NonEmptyStr] = None
+    city: Optional[NonEmptyStr] = None
     postal_code: Optional[str] = None
-    is_lahore: bool
-    is_default: bool
+    is_default: Optional[bool] = None
 
 
-class UserPublic(BaseSchema):
+class AddressOut(AddressBase):
     id: str
-    full_name: str
-    email: Optional[str] = None
+    is_default: bool
+    is_express_eligible: bool
+
+
+class UserOut(BaseSchema):
+    id: str
     phone: str
-    avatar_url: Optional[str] = None
-    selected_city: str
-    is_lahore_express_eligible: bool
-    member_since: str
-    default_address_id: Optional[str] = None
-
-
-class UserProfileDetail(UserPublic):
-    addresses: List[ShippingAddressResponse] = []
-
-
-class UserProfileUpdate(BaseSchema):
     full_name: Optional[str] = None
     email: Optional[str] = None
     avatar_url: Optional[str] = None
+    city: Optional[str] = None
+    role: str
+    created_at: datetime
 
 
-class UserCityUpdate(BaseSchema):
-    city: str = Field(..., examples=["Lahore", "Karachi", "Islamabad"])
+class UserProfile(UserOut):
+    addresses: List[AddressOut] = []
 
 
-class UserCityUpdateData(BaseSchema):
-    selected_city: str
-    is_lahore_express_eligible: bool
-
-
-class TokenResponseData(BaseSchema):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int = 86400
-    user: Optional[UserPublic] = None
+class UserUpdate(BaseSchema):
+    full_name: Optional[NonEmptyStr] = Field(None, max_length=128)
+    email: Optional[EmailStr] = None
+    avatar_url: Optional[str] = None
+    city: Optional[NonEmptyStr] = Field(None, max_length=64)

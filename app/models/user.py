@@ -1,91 +1,92 @@
 """
-Bazaura.pk - User & Address Models
-Represents customer, concierge agent, rider, and admin profiles,
-alongside their saved delivery addresses across Lahore and Pakistan nationwide.
+Users, their saved addresses and one-time login codes.
 """
 
-from typing import List, Optional
-from sqlalchemy import String, Text, Boolean, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.ext.hybrid import hybrid_property
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
 
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.config import settings
 from app.core.database import Base
-from app.models.base import TimestampMixin, generate_prefixed_id
+from app.models.base import TimestampMixin, UTCDateTime, id_column, utcnow
+from app.models.enums import UserRole
+
+if TYPE_CHECKING:
+    from app.models.order import Order
+    from app.models.wishlist import WishlistItem
 
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(
-        String(36),
-        primary_key=True,
-        default=lambda: generate_prefixed_id("usr")
-    )
-    phone: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
-    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True, nullable=True)
-    full_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    avatar_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    selected_city: Mapped[str] = mapped_column(String(64), nullable=False, default="Lahore")
-    role: Mapped[str] = mapped_column(String(32), nullable=False, default="customer")
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    is_phone_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    id: Mapped[str] = id_column("usr")
+    phone: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    full_name: Mapped[Optional[str]] = mapped_column(String(128))
+    avatar_url: Mapped[Optional[str]] = mapped_column(Text)
+    city: Mapped[Optional[str]] = mapped_column(String(64))
+    role: Mapped[str] = mapped_column(String(16), default=UserRole.CUSTOMER)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
 
-    @hybrid_property
-    def is_lahore_express_eligible(self) -> bool:
-        """Dynamically identifies whether user is eligible for 2-Hour Lahore Express delivery."""
-        return bool(self.selected_city and self.selected_city.strip().lower() == "lahore")
-
-    # Relationships
-    addresses: Mapped[List["ShippingAddress"]] = relationship(
-        "ShippingAddress",
+    addresses: Mapped[List["Address"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
-        order_by="desc(ShippingAddress.is_default)"
+        order_by=lambda: (Address.is_default.desc(), Address.created_at),
     )
-    orders: Mapped[List["Order"]] = relationship(  # type: ignore # noqa: F821
-        "Order",
-        back_populates="user"
-    )
-    custom_requests: Mapped[List["CustomItemRequest"]] = relationship(  # type: ignore # noqa: F821
-        "CustomItemRequest",
-        back_populates="user"
-    )
-    reviews: Mapped[List["ProductReview"]] = relationship(  # type: ignore # noqa: F821
-        "ProductReview",
-        back_populates="user"
-    )
-    wishlist_items: Mapped[List["WishlistItem"]] = relationship(  # type: ignore # noqa: F821
-        "WishlistItem",
-        back_populates="user",
-        cascade="all, delete-orphan"
-    )
+    orders: Mapped[List["Order"]] = relationship(back_populates="user")
+    wishlist_items: Mapped[List["WishlistItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+    @property
+    def is_staff(self) -> bool:
+        return self.role in (UserRole.STAFF, UserRole.ADMIN)
 
 
-class ShippingAddress(Base, TimestampMixin):
-    __tablename__ = "shipping_addresses"
+class Address(Base, TimestampMixin):
+    __tablename__ = "addresses"
 
-    id: Mapped[str] = mapped_column(
-        String(36),
-        primary_key=True,
-        default=lambda: generate_prefixed_id("addr")
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
-    )
-    full_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    phone: Mapped[str] = mapped_column(String(20), nullable=False)
-    alternate_phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    address_line1: Mapped[str] = mapped_column(Text, nullable=False)
-    address_line2: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    area: Mapped[str] = mapped_column(String(128), nullable=False)  # e.g. Gulberg III, DHA Phase 5
-    city: Mapped[str] = mapped_column(String(64), nullable=False)   # e.g. Lahore, Karachi
-    postal_code: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
-    is_lahore: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    id: Mapped[str] = id_column("adr")
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    label: Mapped[Optional[str]] = mapped_column(String(32))  # "Home", "Office"
+    full_name: Mapped[str] = mapped_column(String(128))
+    phone: Mapped[str] = mapped_column(String(20))
+    alternate_phone: Mapped[Optional[str]] = mapped_column(String(20))
+    address_line1: Mapped[str] = mapped_column(Text)
+    address_line2: Mapped[Optional[str]] = mapped_column(Text)
+    area: Mapped[str] = mapped_column(String(128))
+    city: Mapped[str] = mapped_column(String(64))
+    postal_code: Mapped[Optional[str]] = mapped_column(String(16))
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="addresses")
+    user: Mapped["User"] = relationship(back_populates="addresses")
+
+    @property
+    def is_express_eligible(self) -> bool:
+        return settings.is_express_city(self.city)
+
+    def snapshot(self) -> dict:
+        """Frozen copy stored on orders so later edits never change past orders."""
+        return {
+            "full_name": self.full_name,
+            "phone": self.phone,
+            "alternate_phone": self.alternate_phone,
+            "address_line1": self.address_line1,
+            "address_line2": self.address_line2,
+            "area": self.area,
+            "city": self.city,
+            "postal_code": self.postal_code,
+        }
+
+
+class OtpCode(Base):
+    __tablename__ = "otp_codes"
+
+    id: Mapped[str] = id_column("otp")
+    phone: Mapped[str] = mapped_column(String(20), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)

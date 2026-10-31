@@ -1,56 +1,51 @@
 """
-Bazaura.pk - Database Management Module
-Implements SQLAlchemy 2.0 modern asynchronous engine, session factory,
-and dependency injection provider for FastAPI endpoints.
+Database engine, session factory and the declarative base for all models.
 """
 
 from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine
-)
+
+from sqlalchemy import MetaData
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+
 from app.core.config import settings
 
-# Configure SQLAlchemy Async Engine
-# echo=settings.DEBUG logs generated SQL queries during development
-# pool_pre_ping validates connection health before handing out sessions
-engine = create_async_engine(
-    settings.async_database_url,
-    echo=settings.DEBUG,
-    pool_pre_ping=True,
-    future=True
-)
-
-# Modern SQLAlchemy 2.0 async sessionmaker
-AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False
-)
+# Deterministic constraint names keep Alembic migrations stable across databases.
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
 
 
 class Base(DeclarativeBase):
-    """
-    Base class for all SQLAlchemy 2.0 declarative database models in Bazaura.pk.
-    """
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=settings.SQL_ECHO,
+    pool_pre_ping=True,
+)
+
+SessionLocal = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autoflush=False,
+)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    FastAPI dependency that yields an asynchronous database session per request.
-    Ensures safe session closure and automatic rollback on unhandled exceptions.
+    Yields one session per request. Writes are committed explicitly by the
+    service that performs them; anything uncommitted is rolled back here.
     """
-    async with AsyncSessionLocal() as session:
+    async with SessionLocal() as session:
         try:
             yield session
-            await session.commit()
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()

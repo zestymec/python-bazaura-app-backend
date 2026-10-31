@@ -1,30 +1,32 @@
 """
-Bazaura.pk - Database Models Export
-Ensures all SQLAlchemy 2.0 models are imported and registered with Base metadata.
+Importing this package registers every model on `Base.metadata`
+(required by Alembic autogenerate and by tests that create tables).
 """
 
-from app.models.base import Base, generate_prefixed_id
-from app.models.user import User, ShippingAddress
-from app.models.product import Category, Product, ProductVariant, ProductReview, Voucher
-from app.models.order import Order, OrderItem, OrderTimeline
-from app.models.request import CustomItemRequest, SourcingQuote
-from app.models.content import EditorialContent, WishlistItem
+from app.core.database import Base
+from app.models.catalog import Category, Product, ProductReview, ProductVariant
+from app.models.content import ContentBlock
+from app.models.custom_request import CustomRequest, CustomRequestQuote
+from app.models.order import Order, OrderItem, OrderStatusEvent
+from app.models.user import Address, OtpCode, User
+from app.models.voucher import Voucher
+from app.models.wishlist import WishlistItem
 
 __all__ = [
     "Base",
-    "generate_prefixed_id",
-    "User",
-    "ShippingAddress",
+    "Address",
     "Category",
-    "Product",
-    "ProductVariant",
-    "ProductReview",
-    "Voucher",
+    "ContentBlock",
+    "CustomRequest",
+    "CustomRequestQuote",
     "Order",
     "OrderItem",
-    "OrderTimeline",
-    "CustomItemRequest",
-    "SourcingQuote",
-    "EditorialContent",
+    "OrderStatusEvent",
+    "OtpCode",
+    "Product",
+    "ProductReview",
+    "ProductVariant",
+    "User",
+    "Voucher",
     "WishlistItem",
 ]

@@ -1,13 +1,19 @@
 """
-Bazaura.pk - Core Configuration Module
-Defines strongly-typed environment settings using Pydantic Settings (v2).
-Handles database URLs, JWT security configurations, Redis connections,
-and Pakistani quick-commerce logistics thresholds.
+Application settings.
+
+Every value can be overridden with an environment variable of the same name
+(or a line in `.env`). Business rules that the brand may want to tune — delivery
+fees, express delivery hours, free-shipping threshold — live here so they can be
+changed without touching code.
 """
 
+from functools import lru_cache
 from typing import List, Optional
-from pydantic import computed_field
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_INSECURE_DEFAULT_SECRET = "change-me-in-env-this-is-not-a-real-secret-key"
 
 
 class Settings(BaseSettings):
@@ -15,75 +21,89 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
-        extra="ignore"
+        extra="ignore",
     )
 
-    # Core Application
-    PROJECT_NAME: str = "Bazaura.pk Quick-Commerce & Concierge Backend"
+    # --- Application -------------------------------------------------------
+    PROJECT_NAME: str = "Bazaura.pk API"
     VERSION: str = "1.0.0"
-    API_V1_STR: str = "/api/v1"
-    DEBUG: bool = True
-    ENVIRONMENT: str = "development"
+    API_V1_PREFIX: str = "/api/v1"
+    ENVIRONMENT: str = "development"  # development | staging | production | test
+    DEBUG: bool = False
+    SITE_URL: str = "https://bazaura.pk"  # used for canonical URLs in SEO metadata
 
-    # CORS configuration
-    BACKEND_CORS_ORIGINS: List[str] = ["*"]
+    # Origins allowed to call the API from a browser (Next.js site, admin, Expo web).
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8081"]
 
-    # Security & JWT Tokens
-    # Used for HMAC-SHA256 signing of JWT access & refresh tokens
-    SECRET_KEY: str = "bazaura_super_secret_production_key_change_in_env_minimum_32_characters"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 Hours
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30     # 30 Days
+    # --- Security ----------------------------------------------------------
+    SECRET_KEY: str = _INSECURE_DEFAULT_SECRET
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # Database Configuration (PostgreSQL 16+ via SQLAlchemy 2.0 Asyncpg)
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
-    POSTGRES_DB: str = "bazaura_db"
-    SQLALCHEMY_DATABASE_URI: Optional[str] = None
+    # --- Database ----------------------------------------------------------
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/bazaura"
+    SQL_ECHO: bool = False
 
-    @computed_field
-    def async_database_url(self) -> str:
-        """
-        Builds the asynchronous PostgreSQL connection string using asyncpg driver.
-        If SQLALCHEMY_DATABASE_URI is explicitly set in .env (e.g. for testing or SQLite async),
-        it takes precedence.
-        """
-        if self.SQLALCHEMY_DATABASE_URI:
-            return self.SQLALCHEMY_DATABASE_URI
-        return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@"
-            f"{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
-
-    # Redis Cache & Broker Configuration
-    REDIS_URL: str = "redis://localhost:6379/0"
-
-    # Celery Asynchronous Workers
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
-
-    # Quick-Commerce Logistics Business Rules (in PKR)
-    # ⚡ 2-Hour Express Lahore: Rs. 299 for subtotal < 10,000 PKR; Free (Rs. 0) over 10,000 PKR
-    # 📦 Nationwide Standard Delivery: Rs. 199 for subtotal < 10,000 PKR; Free (Rs. 0) over 10,000 PKR
-    FREE_SHIPPING_THRESHOLD_PKR: int = 10000
-    LAHORE_EXPRESS_DELIVERY_FEE_PKR: int = 299
-    NATIONWIDE_STANDARD_DELIVERY_FEE_PKR: int = 199
-
-    # AWS S3 / MinIO Object Storage
-    AWS_ACCESS_KEY_ID: str = "mock_access_key"
-    AWS_SECRET_ACCESS_KEY: str = "mock_secret_key"
-    AWS_REGION: str = "eu-west-1"
-    AWS_S3_BUCKET_NAME: str = "bazaura-media-bucket"
-    S3_PUBLIC_BASE_URL: str = "https://media.bazaura.pk"
-
-    # SMS OTP & Notifications (Pakistan Providers: Zong / Jazz / Twilio)
-    SMS_GATEWAY_API_KEY: str = "MOCK_SMS_GATEWAY_KEY"
-    SMS_SENDER_ID: str = "BAZAURA"
-    FCM_SERVER_KEY: str = "MOCK_FCM_SERVER_KEY"
-    OTP_EXPIRY_SECONDS: int = 120
+    # --- OTP login ---------------------------------------------------------
+    OTP_LENGTH: int = 6
+    OTP_EXPIRY_SECONDS: int = 300
     OTP_RESEND_COOLDOWN_SECONDS: int = 60
+    OTP_MAX_ATTEMPTS: int = 5
+    OTP_MAX_REQUESTS_PER_WINDOW: int = 3
+    OTP_REQUEST_WINDOW_MINUTES: int = 15
+    # Development/test only: every OTP equals this code. Refused in production.
+    OTP_FIXED_CODE: Optional[str] = None
+
+    # --- Delivery & pricing (PKR) -----------------------------------------
+    FREE_SHIPPING_THRESHOLD_PKR: int = 10000
+    STANDARD_DELIVERY_FEE_PKR: int = 199
+    STANDARD_DELIVERY_ESTIMATE: str = "2-4 working days"
+    EXPRESS_DELIVERY_FEE_PKR: int = 299
+    EXPRESS_DELIVERY_HOURS: int = 3
+    EXPRESS_DELIVERY_CITIES: List[str] = ["Lahore"]
+    GIFT_WRAP_FEE_PKR: int = 0
+
+    # --- Custom requests ---------------------------------------------------
+    CUSTOM_REQUEST_QUOTE_VALID_DAYS: int = 2
+
+    # --- Object storage (S3 compatible: AWS S3, Cloudflare R2, MinIO) ------
+    STORAGE_ENDPOINT_URL: Optional[str] = None  # None = AWS S3
+    STORAGE_ACCESS_KEY_ID: str = ""
+    STORAGE_SECRET_ACCESS_KEY: str = ""
+    STORAGE_REGION: str = "auto"
+    STORAGE_BUCKET: str = "bazaura-media"
+    STORAGE_PUBLIC_BASE_URL: str = "https://media.bazaura.pk"
+
+    # --- Notifications -----------------------------------------------------
+    SMS_PROVIDER: str = "console"  # console = log messages instead of sending
+    SMS_API_KEY: str = ""
+    SMS_SENDER_ID: str = "BAZAURA"
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "production"
+
+    @property
+    def express_cities_normalized(self) -> set[str]:
+        return {city.strip().lower() for city in self.EXPRESS_DELIVERY_CITIES}
+
+    def is_express_city(self, city: Optional[str]) -> bool:
+        return bool(city) and city.strip().lower() in self.express_cities_normalized
+
+    @model_validator(mode="after")
+    def _check_production_safety(self) -> "Settings":
+        if self.is_production:
+            if self.SECRET_KEY == _INSECURE_DEFAULT_SECRET or len(self.SECRET_KEY) < 32:
+                raise ValueError("SECRET_KEY must be set to a random value of 32+ characters in production")
+            if self.OTP_FIXED_CODE:
+                raise ValueError("OTP_FIXED_CODE must not be set in production")
+        return self
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

@@ -1,32 +1,48 @@
 """
-Bazaura.pk - Database Base Models & Mixins
-Contains ID generators and common audit timestamp columns for SQLAlchemy 2.0 models.
+Shared column types, ID generation and timestamp mixin for all models.
 """
 
-import uuid
-from datetime import datetime, timezone
-from sqlalchemy import DateTime, func
+import secrets
+from datetime import UTC, datetime
+from typing import Optional
+
+from sqlalchemy import DateTime, String, TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column
-from app.core.database import Base
 
 
-def generate_prefixed_id(prefix: str) -> str:
-    """Generates unique prefixed string identifier e.g. usr_..., prod_..., ord_..."""
-    return f"{prefix}_{uuid.uuid4().hex[:12]}"
+def utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def generate_id(prefix: str) -> str:
+    """Readable, globally unique IDs such as `prd_9f2c4a1b7e3d4c55`."""
+    return f"{prefix}_{secrets.token_hex(8)}"
+
+
+class UTCDateTime(TypeDecorator):
+    """
+    Timezone-aware datetime that always comes back as UTC, on every database
+    (SQLite drops tzinfo, which would otherwise break comparisons in tests).
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: Optional[datetime], dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value
+
+    def process_result_value(self, value: Optional[datetime], dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value
+
+
+def id_column(prefix: str) -> Mapped[str]:
+    return mapped_column(String(32), primary_key=True, default=lambda: generate_id(prefix))
 
 
 class TimestampMixin:
-    """Provides automatic created_at and updated_at datetime tracking."""
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        default=lambda: datetime.now(timezone.utc),
-        nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=lambda: datetime.now(timezone.utc),
-        default=lambda: datetime.now(timezone.utc),
-        nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)

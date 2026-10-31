@@ -1,0 +1,23 @@
+[project]
+name = "bazaura-backend"
+version = "1.0.0"
+description = "Backend API for the Bazaura.pk app and website"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning:botocore.*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["B008", "UP007", "UP035", "UP006", "UP045", "UP046"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]

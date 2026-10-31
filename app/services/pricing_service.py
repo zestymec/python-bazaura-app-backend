@@ -1,128 +1,150 @@
 """
-Bazaura.pk - Pricing & Voucher Service
-Implements delivery fee calculation, voucher validation, and total price aggregation.
-All logic is pure Python and can be used from API routers or background tasks.
+Cart pricing. The single source of truth for subtotal, voucher discount,
+delivery fee and total — used both by the cart screen and by order placement,
+so what the customer sees is exactly what the order will charge.
 """
 
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Sequence
 
-from app.schemas.cart import CartValidateRequest, CartCalculationResult, CartItemValidated
-from app.schemas.product import VoucherResponse
-from app.models.product import Voucher
-from app.core.config import settings
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.core.config import settings
+from app.models.catalog import ProductVariant
+from app.models.enums import DeliveryType, DiscountType
+from app.models.voucher import Voucher
+from app.schemas.cart import AppliedVoucher, CartIssue, CartItemIn, CartLine, CartQuote
+from app.services import delivery
 
 
-class PricingService:
-    """Business‑logic service for cart pricing, discounts, and delivery fees.
+@dataclass
+class PricedCart:
+    quote: CartQuote
+    variants: Dict[str, ProductVariant] = field(default_factory=dict)
+    voucher: Optional[Voucher] = None
 
-    The service is deliberately stateless – it receives a request payload and a DB
-    session, performs look‑ups (product, voucher) and returns a fully populated
-    ``CartCalculationResult``.
-    """
 
-    def __init__(self, db: AsyncSession):
-        self.db = db
+def merge_items(items: Sequence[CartItemIn]) -> Dict[str, int]:
+    """Combines duplicate lines for the same variant."""
+    merged: Dict[str, int] = {}
+    for item in items:
+        merged[item.variant_id] = merged.get(item.variant_id, 0) + item.quantity
+    return merged
 
-    # ---------------------------------------------------------------------
-    # Public interface
-    # ---------------------------------------------------------------------
-    async def calculate_cart(self, payload: CartValidateRequest) -> CartCalculationResult:
-        """Calculate subtotal, apply voucher, compute delivery fee, and produce the final total.
 
-        Steps (mirroring the blueprint rules):
-        1. Fetch each product and ensure stock availability.
-        2. Apply variant price modifiers (not modelled here – assumed 0).
-        3. Compute ``subtotal`` = sum(line_total).
-        4. Resolve voucher (if provided) and apply caps.
-        5. Determine delivery fee based on ``payload.city`` and ``payload.delivery_type``.
-        6. Return a rich ``CartCalculationResult`` including per‑item details.
-        """
-        items_validated: List[CartItemValidated] = []
-        subtotal = 0
+async def price_cart(
+    db: AsyncSession,
+    items: Sequence[CartItemIn],
+    *,
+    voucher_code: Optional[str],
+    delivery_type: DeliveryType,
+    city: Optional[str],
+    lock_stock: bool = False,
+) -> PricedCart:
+    quantities = merge_items(items)
+    query = (
+        select(ProductVariant)
+        .options(selectinload(ProductVariant.product))
+        .where(ProductVariant.id.in_(quantities.keys()))
+    )
+    if lock_stock:
+        query = query.with_for_update()
+    variants = {v.id: v for v in (await db.execute(query)).scalars().all()}
 
-        for item in payload.items:
-            # Load product – raise 404 if missing
-            result = await self.db.execute(select(Voucher).where(Voucher.id == item.product_id))
-            # NOTE: In a real implementation we'd join Product; using Voucher as placeholder to avoid circular import.
-            # For demonstration we simply mock product data.
-            # Here we assume each product exists and has a price of 1000 PKR per unit.
-            unit_price = 1000
-            line_total = unit_price * item.quantity
-            subtotal += line_total
-            items_validated.append(
-                CartItemValidated(
-                    product_id=item.product_id,
-                    title=f"Product {item.product_id}",
-                    quantity=item.quantity,
-                    unit_price=unit_price,
-                    line_total=line_total,
-                    image_url=None,
-                    in_stock=True,
-                    is_lahore_express_eligible=payload.city.lower() == "lahore",
+    lines: List[CartLine] = []
+    issues: List[CartIssue] = []
+    for variant_id, quantity in quantities.items():
+        variant = variants.get(variant_id)
+        if variant is None or not variant.is_active or not variant.product.is_active:
+            issues.append(
+                CartIssue(code="VARIANT_NOT_FOUND", message="This item is no longer available", variant_id=variant_id)
+            )
+            variants.pop(variant_id, None)
+            continue
+
+        product = variant.product
+        if variant.stock_quantity <= 0:
+            issues.append(
+                CartIssue(code="OUT_OF_STOCK", message=f"{product.title} is out of stock", variant_id=variant_id)
+            )
+        elif variant.stock_quantity < quantity:
+            issues.append(
+                CartIssue(
+                    code="INSUFFICIENT_STOCK",
+                    message=f"Only {variant.stock_quantity} left of {product.title}",
+                    variant_id=variant_id,
                 )
             )
-
-        # -----------------------------------------------------------------
-        # Voucher handling (demo – real logic would query the Voucher table)
-        # -----------------------------------------------------------------
-        applied_voucher: Optional[VoucherResponse] = None
-        discount = 0
-        if payload.voucher_code:
-            voucher = await self._get_voucher_by_code(payload.voucher_code)
-            if voucher and voucher.is_active:
-                # Minimum order amount check
-                if voucher.min_order_amount is None or subtotal >= voucher.min_order_amount:
-                    if voucher.discount_type == "PERCENT":
-                        potential = (subtotal * voucher.value) // 100
-                        discount = min(potential, voucher.max_discount or potential)
-                    else:  # FLAT
-                        discount = voucher.value
-                    applied_voucher = VoucherResponse(
-                        code=voucher.code,
-                        discount_type=voucher.discount_type,
-                        value=voucher.value,
-                        min_order_amount=voucher.min_order_amount,
-                        max_discount=voucher.max_discount,
-                        description=voucher.description,
-                    )
-        # -----------------------------------------------------------------
-        # Delivery fee logic (from settings)
-        # -----------------------------------------------------------------
-        free_shipping = subtotal >= settings.FREE_SHIPPING_THRESHOLD_PKR
-        if free_shipping:
-            delivery_fee = 0
-        else:
-            if payload.delivery_type == "LAHORE_EXPRESS_2HR":
-                delivery_fee = settings.LAHORE_EXPRESS_DELIVERY_FEE_PKR
-            else:
-                delivery_fee = settings.NATIONWIDE_STANDARD_DELIVERY_FEE_PKR
-
-        total = subtotal - discount + delivery_fee
-
-        return CartCalculationResult(
-            subtotal=subtotal,
-            discount=discount,
-            delivery_fee=delivery_fee,
-            total=total,
-            item_count=len(payload.items),
-            applied_voucher=applied_voucher,
-            delivery_type=payload.delivery_type,
-            free_shipping_unlocked=free_shipping,
-            items=items_validated,
+        lines.append(
+            CartLine(
+                variant_id=variant.id,
+                product_id=product.id,
+                product_slug=product.slug,
+                title=product.title,
+                image_url=product.primary_image,
+                sku=variant.sku,
+                size=variant.size,
+                color=variant.color,
+                unit_price=variant.price,
+                quantity=quantity,
+                line_total=variant.price * quantity,
+                available_quantity=variant.stock_quantity,
+            )
         )
 
-    # ---------------------------------------------------------------------
-    # Helper methods (internal)
-    # ---------------------------------------------------------------------
-    async def _get_voucher_by_code(self, code: str) -> Optional[Voucher]:
-        """Retrieve a ``Voucher`` model instance by its code.
-        Returns ``None`` if not found or inactive.
-        """
-        result = await self.db.execute(select(Voucher).where(Voucher.code == code))
-        voucher = result.scalar_one_or_none()
-        return voucher
+    subtotal = sum(line.line_total for line in lines)
+
+    voucher, applied_voucher, discount = None, None, 0
+    if voucher_code:
+        voucher, discount, voucher_issue = await _apply_voucher(db, voucher_code, subtotal)
+        if voucher_issue:
+            issues.append(voucher_issue)
+        elif voucher:
+            applied_voucher = AppliedVoucher(code=voucher.code, description=voucher.description, discount=discount)
+
+    all_express = all(v.product.is_express_eligible for v in variants.values())
+    express_blocker = delivery.express_unavailable_reason(city, all_express)
+    if delivery_type == DeliveryType.EXPRESS and express_blocker:
+        issues.append(CartIssue(code="EXPRESS_UNAVAILABLE", message=express_blocker))
+
+    fee = delivery.delivery_fee(delivery_type, subtotal)
+    quote = CartQuote(
+        lines=lines,
+        item_count=sum(line.quantity for line in lines),
+        subtotal=subtotal,
+        discount=discount,
+        delivery_fee=fee,
+        total=subtotal - discount + fee,
+        delivery_type=delivery_type,
+        delivery_estimate=delivery.delivery_estimate(delivery_type),
+        delivery_options=delivery.delivery_options(subtotal, express_available=express_blocker is None),
+        free_shipping_threshold=settings.FREE_SHIPPING_THRESHOLD_PKR,
+        amount_to_free_shipping=max(settings.FREE_SHIPPING_THRESHOLD_PKR - subtotal, 0),
+        applied_voucher=applied_voucher,
+        issues=issues,
+        can_checkout=bool(lines) and not issues,
+    )
+    return PricedCart(quote=quote, variants=variants, voucher=voucher if applied_voucher else None)
 
 
-__all__ = ["PricingService"]
+async def _apply_voucher(db: AsyncSession, code: str, subtotal: int):
+    voucher = (await db.execute(select(Voucher).where(Voucher.code == code.strip().upper()))).scalar_one_or_none()
+    if voucher is None:
+        return None, 0, CartIssue(code="VOUCHER_INVALID", message="Voucher code not found")
+
+    reason = voucher.unavailable_reason()
+    if reason:
+        return None, 0, CartIssue(code="VOUCHER_INVALID", message=reason)
+    if voucher.min_order_amount and subtotal < voucher.min_order_amount:
+        short_by = voucher.min_order_amount - subtotal
+        return None, 0, CartIssue(code="VOUCHER_INVALID", message=f"Add Rs. {short_by:,} more to use this voucher")
+
+    if voucher.discount_type == DiscountType.PERCENT:
+        discount = subtotal * voucher.value // 100
+        if voucher.max_discount is not None:
+            discount = min(discount, voucher.max_discount)
+    else:
+        discount = voucher.value
+    return voucher, min(discount, subtotal), None

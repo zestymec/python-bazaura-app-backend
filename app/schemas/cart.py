@@ -1,47 +1,73 @@
-"""
-Bazaura.pk - Cart & Checkout Calculation Schemas
-Validates items in customer shopping cart, applies vouchers, and calculates
-subtotal, discounts, and delivery fees based on city and delivery speed.
-"""
+from typing import List, Optional
 
-from typing import Any, Dict, List, Optional
 from pydantic import Field
-from app.schemas.base import BaseSchema
-from app.schemas.product import VoucherResponse
+
+from app.models.enums import DeliveryType
+from app.schemas.common import BaseSchema
 
 
-class CartItemInput(BaseSchema):
-    product_id: str
-    quantity: int = Field(..., gt=0)
-    selected_variants: Dict[str, Any] = Field(default_factory=dict)
+class CartItemIn(BaseSchema):
+    variant_id: str = Field(..., description="The size/colour variant being bought")
+    quantity: int = Field(..., ge=1, le=20)
 
 
-class CartValidateRequest(BaseSchema):
-    items: List[CartItemInput]
+class CartQuoteRequest(BaseSchema):
+    items: List[CartItemIn] = Field(..., min_length=1, max_length=50)
     voucher_code: Optional[str] = None
-    delivery_type: str = Field("LAHORE_EXPRESS_2HR", examples=["LAHORE_EXPRESS_2HR", "NATIONWIDE_STANDARD"])
-    city: str = Field("Lahore", examples=["Lahore", "Karachi", "Islamabad"])
+    delivery_type: DeliveryType = DeliveryType.STANDARD
+    city: Optional[str] = Field(None, description="Delivery city; needed to check express eligibility")
 
 
-class CartItemValidated(BaseSchema):
+class CartLine(BaseSchema):
+    variant_id: str
     product_id: str
+    product_slug: str
     title: str
-    quantity: int
-    unit_price: int
-    line_total: int
     image_url: Optional[str] = None
-    in_stock: bool
-    is_lahore_express_eligible: bool
+    sku: str
+    size: Optional[str] = None
+    color: Optional[str] = None
+    unit_price: int
+    quantity: int
+    line_total: int
+    available_quantity: int
 
 
-class CartCalculationResult(BaseSchema):
+class CartIssue(BaseSchema):
+    """A problem the customer must resolve before checkout (shown in the cart UI)."""
+
+    code: str  # VARIANT_NOT_FOUND, OUT_OF_STOCK, INSUFFICIENT_STOCK, VOUCHER_INVALID, EXPRESS_UNAVAILABLE
+    message: str
+    variant_id: Optional[str] = None
+
+
+class AppliedVoucher(BaseSchema):
+    code: str
+    description: str
+    discount: int
+
+
+class DeliveryOption(BaseSchema):
+    type: DeliveryType
+    label: str
+    estimate: str
+    fee: int
+    available: bool
+
+
+class CartQuote(BaseSchema):
+    lines: List[CartLine]
+    item_count: int
     subtotal: int
     discount: int
     delivery_fee: int
+    extra_fee: int = 0
     total: int
-    item_count: int
-    applied_voucher: Optional[VoucherResponse] = None
-    delivery_type: str
-    free_shipping_unlocked: bool
-    free_shipping_threshold: int = 10000
-    items: Optional[List[CartItemValidated]] = None
+    delivery_type: DeliveryType
+    delivery_estimate: str
+    delivery_options: List[DeliveryOption]
+    free_shipping_threshold: int
+    amount_to_free_shipping: int
+    applied_voucher: Optional[AppliedVoucher] = None
+    issues: List[CartIssue]
+    can_checkout: bool
