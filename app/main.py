@@ -19,6 +19,9 @@ from app.core.database import engine
 from app.core.exceptions import register_exception_handlers
 
 logging.basicConfig(level=logging.DEBUG if settings.DEBUG else logging.INFO)
+# DEBUG is for our own code; keep chatty third-party libraries at WARNING.
+for noisy in ("aiosqlite", "asyncio", "botocore", "boto3", "urllib3", "httpcore", "httpx"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 @asynccontextmanager
