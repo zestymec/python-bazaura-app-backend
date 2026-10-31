@@ -66,10 +66,6 @@ class CustomItemRequestResponse(BaseSchema):
     status_timeline: List[RequestTimelineStep] = []
 
 
-class AcceptQuoteRequest(BaseSchema):
-    payment_method: str = Field("CASH_ON_DELIVERY", examples=["CASH_ON_DELIVERY", "JAZZCASH", "EASYPAISA", "DEBIT_CREDIT_CARD"])
-
-
 class AcceptQuoteResponseData(BaseSchema):
     id: str
     status: str

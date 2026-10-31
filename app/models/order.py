@@ -2,6 +2,7 @@
 Bazaura.pk - Orders, Order Items & Tracking Timeline Models
 Implements quick-commerce orders with frozen JSON snapshots of shipping address
 and products at checkout time, along with multi-step real-time tracking timeline.
+All orders are Cash on Delivery for now; no payment gateway fields are stored.
 """
 
 from typing import Any, Dict, List, Optional
@@ -38,22 +39,11 @@ class Order(Base, TimestampMixin):
     )  # 'LAHORE_EXPRESS_2HR' or 'NATIONWIDE_STANDARD'
     estimated_delivery_text: Mapped[str] = mapped_column(String(255), nullable=False)
     shipping_address_snapshot: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
-    payment_method: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="CASH_ON_DELIVERY"
-    )  # 'CASH_ON_DELIVERY', 'JAZZCASH', 'EASYPAISA', 'DEBIT_CREDIT_CARD'
-    payment_status: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
-        default="PENDING"
-    )  # 'PENDING', 'PAID', 'COD', 'FAILED', 'REFUNDED'
     status: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
         default="PLACED"
     )  # 'PLACED', 'CONFIRMED', 'PREPARING', 'OUT_FOR_DELIVERY_2HR', 'DELIVERED', 'CANCELLED'
-    payment_reference: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="orders")  # type: ignore # noqa: F821

@@ -78,13 +78,6 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET_NAME: str = "bazaura-media-bucket"
     S3_PUBLIC_BASE_URL: str = "https://media.bazaura.pk"
 
-    # Pakistani Payment Gateways
-    JAZZCASH_MERCHANT_ID: str = "MOCK_JAZZCASH_MERCHANT"
-    JAZZCASH_PASSWORD: str = "MOCK_PASSWORD"
-    JAZZCASH_HASH_SECRET: str = "MOCK_INTEGRITY_SALT"
-    EASYPAISA_STORE_ID: str = "MOCK_EASYPAISA_STORE"
-    EASYPAISA_HASH_KEY: str = "MOCK_EASYPAISA_KEY"
-
     # SMS OTP & Notifications (Pakistan Providers: Zong / Jazz / Twilio)
     SMS_GATEWAY_API_KEY: str = "MOCK_SMS_GATEWAY_KEY"
     SMS_SENDER_ID: str = "BAZAURA"

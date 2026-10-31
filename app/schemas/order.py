@@ -1,7 +1,7 @@
 """
 Bazaura.pk - Orders & Tracking Timeline Schemas
 Defines request payloads for placing quick-commerce orders and response models
-including frozen shipping snapshots, payment methods, and live fulfillment timeline steps.
+including frozen shipping snapshots and live fulfillment timeline steps.
 """
 
 from typing import Any, Dict, List, Optional
@@ -26,7 +26,6 @@ class OrderCreateRequest(BaseSchema):
     total: Optional[int] = None
     delivery_type: str = Field("LAHORE_EXPRESS_2HR", examples=["LAHORE_EXPRESS_2HR", "NATIONWIDE_STANDARD"])
     shipping_address_id: str
-    payment_method: str = Field("CASH_ON_DELIVERY", examples=["CASH_ON_DELIVERY", "JAZZCASH", "EASYPAISA", "DEBIT_CREDIT_CARD"])
     voucher_code: Optional[str] = None
 
 
@@ -57,9 +56,6 @@ class OrderResponse(BaseSchema):
     total: int
     delivery_type: str
     estimated_delivery_text: str
-    payment_method: str
-    payment_status: str
-    payment_reference: Optional[str] = None
     created_at: datetime
     shipping_address: Optional[Dict[str, Any]] = None
     timeline: List[OrderTimelineStep] = []

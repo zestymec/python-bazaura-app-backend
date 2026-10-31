@@ -17,7 +17,7 @@ Bazaura.pk is a premier Pakistani quick-commerce and managed marketplace mobile 
 1. **⚡ 2-Hour Express Lahore Delivery:** Hyperlocal instant fulfillment within Lahore (served via centralized/local hubs like Gulberg, DHA, Johar Town).
 2. **📦 2-3 Days Nationwide Delivery:** Pakistan-wide standard courier fulfillment across Karachi, Islamabad, Rawalpindi, Faisalabad, Multan, and other cities.
 3. **✨ Bazaura Sourcing Concierge ("Request Item"):** A unique feature allowing users to submit custom requests for unlisted or rare products (electronics, perfume, gaming gear, luxury goods). Sourcing agents source the item, quote a price within minutes, and deliver in 2 Hours (Lahore) or Nationwide upon user confirmation.
-4. **💰 Omnichannel Checkout:** Cash on Delivery (COD), JazzCash, EasyPaisa, and Debit/Credit Cards in PKR.
+4. **💵 Checkout:** Cash on Delivery (COD) only for now. Online payment gateways are out of scope for this version.
 
 ### 1.2 Data Flow Diagram
 ```mermaid
@@ -32,7 +32,6 @@ flowchart TD
     Queue --> Worker1[SMS Gateway - OTP / Order Alerts]
     Queue --> Worker2[FCM Push Notifications]
     Queue --> Worker3[Sourcing Concierge Expiry Monitor]
-    Gateway[JazzCash / EasyPaisa Webhooks] --> API
 ```
 
 ---
@@ -199,10 +198,7 @@ erDiagram
 | `delivery_type` | VARCHAR(32) | NOT NULL | `LAHORE_EXPRESS_2HR` or `NATIONWIDE_STANDARD` |
 | `estimated_delivery_text` | VARCHAR(255)| NOT NULL | e.g. `⚡ Guaranteed within 120 minutes (Lahore Express)` |
 | `shipping_address_snapshot`| JSONB | NOT NULL | Frozen copy of `ShippingAddress` at order time |
-| `payment_method` | VARCHAR(32) | NOT NULL | `CASH_ON_DELIVERY`, `JAZZCASH`, `EASYPAISA`, `DEBIT_CREDIT_CARD` |
-| `payment_status` | VARCHAR(16) | NOT NULL | `PENDING`, `PAID`, `COD`, `FAILED`, `REFUNDED` |
 | `status` | VARCHAR(32) | NOT NULL | `PLACED`, `CONFIRMED`, `PREPARING`, `OUT_FOR_DELIVERY_2HR`, `DELIVERED`, `CANCELLED` |
-| `payment_reference`| VARCHAR(128)| NULLABLE | Transaction ID from JazzCash/EasyPaisa/Stripe |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Order placement time |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | Status update time |
 
@@ -790,7 +786,6 @@ Places a new order with atomic database transaction (decrementing inventory, sna
     "total": 6699,
     "deliveryType": "LAHORE_EXPRESS_2HR",
     "shippingAddressId": "addr_1",
-    "paymentMethod": "CASH_ON_DELIVERY",
     "voucherCode": "LAHORE2HR"
   }
   ```
@@ -809,8 +804,6 @@ Places a new order with atomic database transaction (decrementing inventory, sna
       "total": 6699,
       "deliveryType": "LAHORE_EXPRESS_2HR",
       "estimatedDeliveryText": "⚡ Guaranteed within 120 minutes (Lahore Express)",
-      "paymentMethod": "CASH_ON_DELIVERY",
-      "paymentStatus": "COD",
       "createdAt": "2026-09-10T08:30:00.000Z",
       "shippingAddress": {
         "id": "addr_1",
@@ -967,12 +960,7 @@ Lists all custom item requests submitted by the authenticated user.
 #### `POST /api/v1/requests/{request_id}/accept-quote`
 Accepts a verified price quote, converting it into a confirmed fulfillment order.
 - **Auth Required:** Yes
-- **Request Body:**
-  ```json
-  {
-    "paymentMethod": "CASH_ON_DELIVERY"
-  }
-  ```
+- **Request Body:** None (all orders are Cash on Delivery)
 - **Response `200 OK`:**
   ```json
   {
@@ -1096,24 +1084,9 @@ Generates an AWS S3 presigned PUT URL so the mobile app uploads images directly 
 
 ---
 
-## 5. Third-Party Services & Webhook Integrations
+## 5. Third-Party Services
 
-### 5.1 JazzCash Integration
-- **Flow:**
-  1. Frontend selects `JAZZCASH` at checkout.
-  2. Mobile calls backend endpoint `/api/v1/payments/jazzcash/initiate`.
-  3. Backend computes HMAC-SHA256 hash using `MerchantID`, `Password`, and `IntegerAmount`.
-  4. User is presented with JazzCash Mobile Account OTP / USSD prompt.
-  5. JazzCash servers send an IPN (Instant Payment Notification) HTTP POST webhook to `/api/v1/payments/jazzcash/webhook`.
-  6. Backend verifies transaction HMAC signature, updates `Order.paymentStatus = 'PAID'`, and pushes a real-time notification to the mobile app.
-
-### 5.2 EasyPaisa Integration
-- **Flow:**
-  1. Similar to JazzCash; calls EasyPaisa MA (Mobile Account) API with `orderId` and customer phone.
-  2. EasyPaisa sends webhook callback on payment completion.
-  3. Backend marks `Order.paymentStatus = 'PAID'`.
-
-### 5.3 Push Notifications (Firebase Cloud Messaging - FCM)
+### 5.1 Push Notifications (Firebase Cloud Messaging - FCM)
 - The mobile app registers FCM token on login.
 - Events triggering automated push alerts:
   - **Order Confirmed:** *"Order #BZ-94821 confirmed. We're preparing your express delivery."*
@@ -1121,7 +1094,7 @@ Generates an AWS S3 presigned PUT URL so the mobile app uploads images directly 
   - **Concierge Price Quote Ready:** *"✨ We found your requested item! Review and accept your quote now."*
   - **Order Delivered:** *"Order #BZ-94821 delivered. Enjoy your purchase!"*
 
-### 5.4 SMS Gateway (Pakistan)
+### 5.2 SMS Gateway (Pakistan)
 - Provider: Zong / Jazz / Twilio / TeleStax SMS Gateway.
 - Used for OTP verification, order receipt confirmation, and rider contact alerts.
 
@@ -1142,8 +1115,7 @@ bazaura-backend/
 │   │   │   ├── orders.py        # /api/v1/orders
 │   │   │   ├── requests.py      # /api/v1/requests (concierge)
 │   │   │   ├── wishlist.py      # /api/v1/wishlist
-│   │   │   ├── uploads.py       # /api/v1/uploads (S3 presigned)
-│   │   │   └── webhooks.py      # JazzCash & EasyPaisa callbacks
+│   │   │   └── uploads.py       # /api/v1/uploads (S3 presigned)
 │   ├── core/
 │   │   ├── config.py        # Environment variables (Pydantic Settings)
 │   │   ├── database.py      # Async SQLAlchemy Engine & Session
@@ -1163,7 +1135,6 @@ bazaura-backend/
 │   │   └── cart.py
 │   ├── services/            # Business Logic Services
 │   │   ├── pricing_service.py   # Delivery fee & voucher calculator
-│   │   ├── payment_service.py   # JazzCash / EasyPaisa API client
 │   │   ├── notification.py      # FCM & SMS dispatchers
 │   │   └── s3_service.py        # Presigned URL generation
 │   ├── workers/             # Celery or ARQ background tasks
