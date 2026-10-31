@@ -377,3 +377,55 @@ Laal ❌ aaye to merge na karein.
 | **CI** | Har push par khud tests chalne ka system |
 | **Docker** | App ko ek "dabbe" me band karna jo har server par ek jaisa chale |
 | **async / await** | Database ka intezar karte hue server dusri requests sambhal leta hai |
+
+
+
+
+
+
+
+
+
+Bro, poora backend ban gaya hai. 63 APIs hain aur 34 automated tests sab pass ho rahe hain. Saari tabdeeliyan sirf git add ki hain, commit nahi kiya.
+
+Kya bana
+Login: phone + OTP, JWT tokens ke saath.
+Catalog: kapron ke hisaab se bana hai. Har size aur color ka alag stock hai, aur filters hain: category, size, color, price, season, aur search. Baad mein perfume jaisi categories add karni hon to code badalna nahi padega.
+Cart aur order: Cart ka hisaab server pe hota hai, price kabhi frontend se nahi liya jata. Orders sirf Cash on Delivery hain. Order hote hi stock kam hota hai, aur cancel karne par wapis aa jata hai.
+Custom Request: customer koi cheez arrange karwa sakta hai, ya kisi ko gift bhej sakta hai (gift message, gift wrap, apna naam chhupane ka option). Staff quote bhejta hai, customer accept kare to order ban jata hai.
+SEO: har product aur category ka slug, meta title/description, canonical URL aur breadcrumbs. Next.js ke liye sitemap ki API bhi hai.
+Admin/staff APIs: dashboard ki saari APIs abhi se tayar hain.
+Baqi: wishlist, reviews (jinhone product kharida ho unke reviews pe "verified purchase" badge lagta hai), home screen feed.
+Express delivery: 3 ghante
+Ye number code mein kahin likha hua nahi hai. .env mein EXPRESS_DELIVERY_HOURS=3 hai, aur fees aur cities bhi wahin hain. App aur website ye values GET /api/v1/storefront/config se uthayenge, isliye ek setting badlo to har jagah khud update ho jayega.
+
+Structure
+Bahar padi saari files apni jagah chali gayi hain:
+
+Guide aur API reference ab docs/ mein hain.
+Code app/ mein hai, aur uske andar api, services, models aur schemas alag hain.
+migrations/, tests/ aur scripts/ ke apne folders hain.
+Docker, CI (GitHub Actions) aur Makefile bhi add kar diye.
+Purani backend_blueprint.md hata di hai, kyunke woh electronics app ke liye thi. Uski jagah docs/API_REFERENCE.md hai.
+
+Redis, Celery aur passlib bhi hata diye, kyunke abhi inki zaroorat nahi. Baad mein chahiye hon to wapis add ho sakte hain.
+
+Kya check kiya, kya nahi
+Check ho gaya: saare tests SQLite pe chale. Migration bani, apply hui aur wapis bhi hui. Postgres ka SQL bhi bana ke dekha. Seed data aur admin script chal gaye.
+Check nahi hua: asal Postgres database pe app chala ke nahi dekha, aur Docker bhi test nahi hua, kyunke is laptop pe dono installed nahi hain. GitHub par push karoge to CI ye check asal Postgres pe khud kar lega.
+Aapko kya karna hai
+Poori checklist docs/GUIDE_URDU.md ke Section 9 mein hai. Sab se zaroori:
+
+make install, phir .env.example copy karke .env banao. Database ke liye Neon pe free Postgres bana lo.
+Ye commands chalao, phir browser mein http://localhost:8000/docs kholo. Development mein OTP hamesha 123456 hoga.
+
+make migrate
+make seed
+make admin phone=03xx... name="Umer"
+make dev
+Fees confirm karo: standard Rs. 199, express Rs. 299, aur Rs. 10,000 se upar delivery free. Ye bhi batao ke express sirf Lahore mein hai ya aur shehron mein bhi.
+Launch se pehle:
+SMS provider chunna hai. Uske baghair OTP asal mein phone pe nahi jayega.
+Photos ke liye Cloudflare R2 pe bucket banana hai.
+Deploy ke liye Railway pe account.
+Guide ko poora dobara likha hai. Usmein har folder aur file ka kaam, order aur gift ka step-by-step safar, deploy ka tareeqa, aur mushkil alfaaz ki dictionary hai.
