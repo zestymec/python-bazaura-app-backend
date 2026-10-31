@@ -429,3 +429,78 @@ SMS provider chunna hai. Uske baghair OTP asal mein phone pe nahi jayega.
 Photos ke liye Cloudflare R2 pe bucket banana hai.
 Deploy ke liye Railway pe account.
 Guide ko poora dobara likha hai. Usmein har folder aur file ka kaam, order aur gift ka step-by-step safar, deploy ka tareeqa, aur mushkil alfaaz ki dictionary hai.
+
+
+
+
+
+
+
+Bro, backend aapke laptop par chalne ke liye tayar hai. Setup main ne kar diya hai aur poora flow chala ke check bhi kar liya.
+
+Main ne kya set kiya
+.env file: isme database SQLite rakha hai, yani laptop par ek file (bazaura.db). Docker ya Neon ki zaroorat nahi.
+Tables aur sample data: 15 tables, 7 categories, 10 products, voucher WELCOME10 aur ek banner.
+Admin: 03001234567 ko admin bana diya hai. Apna number admin banana ho to: make admin phone=03XXXXXXXXX name="Umer"
+Ek bug fix: DEBUG=true par terminal hazaron faltu lines se bhar jati thi. Ab sirf kaam ki lines aati hain.
+Check karte waqt ye flow chalaya:
+
+
+1. login ok, role: admin
+2. address: Lahore, express: True
+3. cart: 3499 - 349 + 299 = 3449 | Delivered within 3 hours
+4. order: BZ-261031-SYMK PLACED Rs. 3449
+5. admin ne CONFIRMED kiya → timeline: Order placed, Order confirmed
+Saare 34 tests bhi pass hain.
+
+Backend kaise chalana hai
+VS Code ka terminal kholo aur ye likho:
+
+
+make dev
+Terminal mein Uvicorn running on http://127.0.0.1:8000 aa jaye to backend chal raha hai. Band karna ho to Ctrl + C dabao.
+
+Browser mein kaise test karna hai
+http://localhost:8000/docs kholo. Yahan saari APIs ki list hai, aur har API ko browser se hi chala sakte ho.
+
+Step 1: koi bhi public API chala ke dekho
+
+GET /api/v1/storefront/config kholo.
+Try it out dabao, phir Execute.
+Jawab mein "expressDeliveryHours": 3 dikhega.
+Isi tarah GET /api/v1/products chala ke dekho. 10 products aayenge.
+
+Step 2: login karo
+
+POST /api/v1/auth/otp/request chalao. Body: {"phone": "03001234567"}
+POST /api/v1/auth/otp/verify chalao. Body: {"phone": "03001234567", "code": "123456"}
+Jawab mein accessToken aayega. Usko copy karo.
+Page ke upar Authorize 🔒 button dabao, token paste karo, phir Authorize dabao.
+Ab login wali aur admin wali APIs bhi chalengi.
+
+Step 3: poora order khud try karo
+
+Address banao: POST /users/me/addresses. Response mein id aayegi, use note kar lo.
+Variant ki ID lo: GET /products/classic-pullover-hoodie chalao. variants mein se kisi ek ki id copy karo.
+Cart ka hisaab dekho: POST /cart/quote chalao.
+Order lagao: POST /orders chalao.
+Admin ki taraf se status badlo: PATCH /admin/orders/{id}/status chalao, body: {"status":"CONFIRMED"}.
+Phone ya RN app se test
+Phone se backend tak pahunchne ke liye backend aise chalao:
+
+
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --reload
+Phone aur laptop ek hi WiFi par hon. Phir app ka base URL ye hoga:
+
+
+http://10.10.90.40:8000/api/v1
+Ye aapke laptop ka abhi ka IP hai. WiFi badlo to IP bhi badal jata hai. Naya IP dekhne ke liye: ipconfig getifaddr en0
+
+Android emulator mein base URL http://10.0.2.2:8000/api/v1 hoga.
+
+Kaam ki commands
+Kaam	Command
+Backend chalana	make dev
+Automated tests chalana	make test
+Database bilkul naye sire se	rm bazaura.db && make migrate && make seed
+.env aur bazaura.db GitHub par nahi jayenge, .gitignore mein block hain. Ye sirf aapke laptop ke liye hain.
